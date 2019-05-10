@@ -6,14 +6,14 @@ from flask_cors import CORS
 
 def read_statement():
     # 读取新闻的数据
-    csv = pd.read_csv('liar_dataset/liar_dataset/statement.csv', sep=',', header=None, index_col=False,
+    csv = pd.read_csv(f'liar_dataset/liar_dataset/statement.csv', sep=',', header=None, index_col=False,
                       names=['label', 'statement', 'speaker', 'year', 'month', 'url'])
     return csv
 
 
 def read_speakerinfo():
     # 读取人物的数据
-    csv = pd.read_csv('liar_dataset/liar_dataset/speaker.csv', sep=',', header=None, index_col=False,
+    csv = pd.read_csv(f'liar_dataset/liar_dataset/speaker.csv', sep=',', header=None, index_col=False,
                       names=['speaker', 'party', 'stateInfo'])
     return csv
 
@@ -29,6 +29,7 @@ def count_word(s):
             i = i.replace(p, '')
         # _i为每个单词
         for _i in i.lower().split(' '):
+            _i = _i.strip()
             if not _i.isdigit():
                 cnt[_i] = cnt.get(_i, 0) + 1
     d = [{"name": k, "value": v} for k, v in cnt.items() if k not in stop_words]
@@ -44,10 +45,17 @@ def count_ch(fd):
           "mostlyFalseCounts": credit[3], "FalseCounts": credit[4], "onFireCounts": credit[5]}
     return ch
 
+def count_ch_binary(fd):
+    items = ['True', 'Mostly True', 'Half-True', 'Mostly False', 'False', 'Pants on Fire!']
+    credit = []
+    for item in items:
+        credit.append(fd.count(item))
+    ch = {"True": credit[0] + credit[1], "False": credit[2] + credit[3] + credit[4] + credit[5]}
+    return ch
+
 
 # 程序开始时，读取数据
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
 data = read_statement()
 data_s = read_speakerinfo()
 
@@ -122,7 +130,7 @@ def word_cnt_by_speaker():
         status = 2
     else:
         # 判断year是否为空
-        if year is None:
+        if year is None or int(year) == 0:
             fd = data[data['speaker'] == sname]
         else:
             fd = data[(data['speaker'] == sname) & (data['year'] == int(year))]
@@ -146,17 +154,19 @@ def word_cnt_by_year():
     # 若month不空，返回年份year月份month所有statements中词的统计
     year = request.args.get('year')
     month = request.args.get('month')
+    months = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
+              'August', 'September', 'October', 'November', 'December', '0']
     d = []
     if year is None:
         # 没有传入year,返回状态值2
         status = 2
     elif not year.isdigit():
         status = 2
-    elif month is not None and month.isdigit():
+    elif month not in months:
         status = 2
     else:
         # 判断month是否为空
-        if month is None:
+        if month is None or (month.isdigit() and int(month) == 0):
             fd = data[data['year'] == int(year)]
         else:
             fd = data[(data['year'] == int(year)) & (data['month'] == month)]
@@ -186,7 +196,7 @@ def word_cnt_by_party():
         st = []
         speaker = data_s[data_s['party'] == party]['speaker'].values.tolist()
         for sname in speaker:
-            if year is None:
+            if year is None or int(year) == 0:
                 fd = data[data['speaker'] == sname]['statement'].values.tolist()
                 st.extend(fd)
             else:
@@ -250,8 +260,8 @@ def credit_history_by_speaker():
         status = 2
     elif year1 is not None and year2 is not None and year1 > year2:
         status = 2
-    elif year2 is None:
-        if year1 is None:
+    elif year2 is None or (year2.isdigit() and int(year2) == 0):
+        if year1 is None or (year1.isdigit and int(year1) == 0):
             fd = data[data['speaker'] == sname]
         else:
             fd = data[(data['speaker'] == sname) & (data['year'] == int(year1))]
@@ -292,9 +302,9 @@ def credit_history_by_party():
     else:
         speaker = data_s[data_s['party'] == party]['speaker'].values.tolist()
         labels = []
-        if year2 is None:
+        if year2 is None or (year2.isdigit() and int(year2) == 0):
             for sname in speaker:
-                if year1 is None:
+                if year1 is None or (year1.isdigit() and int(year1) == 0):
                     fd = data[data['speaker'] == sname]['label'].values.tolist()
                     labels.extend(fd)
                 else:
@@ -322,45 +332,60 @@ def credit_history_by_party():
     return jsonify(r)
 
 
+@app.route('/ch/time')
+def credit_history_by_time():
+    from collections import defaultdict
+    binary = request.args.get('binary')
+    months = {'January': 1, 'February': 2, 'March': 3, 'April': 4, 'May': 5, 'June': 6, 'July': 7,
+              'August': 8, 'September': 9, 'October': 10, 'November': 11, 'December': 12}
+    t = []
+    counts = ["TrueCounts", "mostlyTrueCounts", "halfTrueCounts",
+              "mostlyFalseCounts", "FalseCounts", "onFireCounts"]
+    c = defaultdict(list)
+    years = data['year'].values.tolist()
+    years = list(set(years))
+    for year in range(min(years), max(years) + 1):
+        for month in months.keys():
+            fd = data[(data['year'] == year) & (data['month'] == month)]
+            if fd.shape[0] != 0:
+                t.append(str(year) + '/' + str(months[month]))
+                ch = fd['label'].values.tolist()
+                if binary == 'true':
+                    ch = count_ch_binary(ch)
+                    c['True'].append(ch['True'])
+                    c['False'].append(ch['False'])
+                else:
+                    ch = count_ch(ch)
+                    for label in counts:
+                        c[label].append(ch[label])
+    r = {'time': t, 'count': c}
+    return jsonify(r)
+
+
 @app.route('/speakers')
 def speakers():
     from collections import defaultdict
-    sname = data_s.iloc[:, 0]
-    names = sname.values.astype('str')
-    names = list(names)
+    names = data_s.iloc[:, 0].values.tolist()
     name_dict = defaultdict(list)
     for n in names:
         name_dict[n[0].upper()].append(n)
-
     sorted_names = sorted(name_dict.items(), key=lambda x: x[0])
-
     return jsonify(sorted_names)
 
 
-@app.route('/slist')
-def speaker_name():
-    sname = data_s.iloc[:, 0]
-    names = sname.values.astype('str')
-    names = list(names)
-    names.sort()
-    slist = {}
-    for name in names:
-        party = data_s[data_s['speaker'] == name]['party'].values.astype('str')
-        if len(list(party)) == 0:
-            party = 'none'
-        else:
-            party = list(party).pop()
-        state = data_s[data_s['speaker'] == name]['stateInfo'].values.astype('str')
-        if len(list(state))==0:
-            state = 'none'
-        else:
-            state = list(state).pop()
-        info = [party, state]
-        slist[name] = info
-    slist = sorted(slist.items(), key=lambda x: x[0])
-    return jsonify(slist)
+@app.route('/party')
+def party():
+    from collections import defaultdict
+    parties = data_s.iloc[:, 1].values.tolist()
+    parties = list(set(parties))
+    party_dict = defaultdict(list)
+    for p in parties:
+        party_dict[p[0].upper()].append(p)
+    sorted_party = sorted(party_dict.items(), key=lambda x: x[0])
+    return jsonify(sorted_party)
 
 
 if __name__ == '__main__':
     # 以后启动在 terminal里 python app.py
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    CORS(app, supports_credentials=True)
+    app.run(host='0.0.0.0', port=5000, debug=True)
