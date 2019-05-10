@@ -56,6 +56,7 @@ def count_ch_binary(fd):
 
 # 程序开始时，读取数据
 app = Flask(__name__)
+CORS(app, supports_credentials=True)
 data = read_statement()
 data_s = read_speakerinfo()
 
@@ -387,5 +388,4 @@ def party():
 
 if __name__ == '__main__':
     # 以后启动在 terminal里 python app.py
-    CORS(app, supports_credentials=True)
     app.run(host='0.0.0.0', port=5000, debug=True)
