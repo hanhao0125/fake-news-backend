@@ -151,7 +151,7 @@ def word_cnt_by_year():
         status = 2
     elif not year.isdigit():
         status = 2
-    elif month is not None and not month.digit():
+    elif month is not None and month.isdigit():
         status = 2
     else:
         # 判断month是否为空
