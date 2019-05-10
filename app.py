@@ -363,4 +363,4 @@ def speaker_name():
 if __name__ == '__main__':
     # 以后启动在 terminal里 python app.py
     CORS(app, supports_credentials=True)
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
