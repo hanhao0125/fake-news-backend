@@ -1,21 +1,63 @@
 # coding=utf-8
-from flask import Flask, request, jsonify
-import pandas as pd
-from flask_cors import CORS
+from flask import Flask, request, jsonify, abort, g
+from settings import app, db, data, data_s
+from models import User
+from flask_httpauth import HTTPTokenAuth
+import logging
+
+auth = HTTPTokenAuth(scheme='Bearer')
 
 
-def read_statement():
-    # 读取新闻的数据
-    csv = pd.read_csv(f'liar_dataset/liar_dataset/statement.csv', sep=',', header=None, index_col=False,
-                      names=['label', 'statement', 'speaker', 'year', 'month', 'url'])
-    return csv
+@app.route('/user/register', methods=['GET'])
+def new_user():
+    username = request.args.get('username')
+    password = request.args.get('password')
+    username = str(username)
+    password = str(password)
+    if username is None or password is None:
+        abort(400)  # missing arguments
+    if User.query.filter_by(username=username).first() is not None:
+        return jsonify({'code': 0})
+
+    user = User(username=username)
+    user.hash_password(password)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({'username': user.username, 'code': 1})
 
 
-def read_speakerinfo():
-    # 读取人物的数据
-    csv = pd.read_csv(f'liar_dataset/liar_dataset/speaker.csv', sep=',', header=None, index_col=False,
-                      names=['speaker', 'party', 'stateInfo'])
-    return csv
+@app.route('/api/resource')
+@auth.login_required
+def get_resource():
+    return jsonify({'data': 'Hello, %s!' % g.user.username})
+
+
+@auth.verify_token
+def verify_token(token):
+    print('fuck')
+    print(token)
+    user = User.verify_auth_token(token)
+    if user:
+        g.user = user
+        return True
+    else:
+        return False
+
+
+@app.route('/user/token', methods=['get'])
+def get_auth_token():
+    username = request.args.get('username')
+    password = request.args.get('password')
+
+    if username is None or password is None:
+        abort(400)
+    u = User.query.filter_by(username=username).first()
+    if u is None:
+        print('no such user')
+        abort(400)
+    u.verify_password(password)
+    token = u.generate_auth_token()
+    return jsonify({'token': token.decode('ascii')})
 
 
 def count_word(s):
@@ -55,15 +97,10 @@ def count_ch_binary(fd):
     return ch
 
 
-# 程序开始时，读取数据
-app = Flask(__name__)
-data = read_statement()
-data_s = read_speakerinfo()
-
 # 去掉数据中的回车符和空格
-data['speaker'] = data['speaker'].apply(lambda x:x.replace("\n",""))
-data_s['speaker'] = data_s['speaker'].apply(lambda x:x.lstrip())
-data['statement'] = data['statement'].apply(lambda x:x.rstrip())
+data['speaker'] = data['speaker'].apply(lambda x: x.replace("\n", ""))
+data_s['speaker'] = data_s['speaker'].apply(lambda x: x.lstrip())
+data['statement'] = data['statement'].apply(lambda x: x.rstrip())
 
 # 读取停止词表
 with open('liar_dataset/liar_dataset/stopword.txt', 'r') as f:
@@ -77,6 +114,7 @@ def hello_world():
 
 
 @app.route('/speaker/statements')
+@auth.login_required
 def speaker_statement():
     # 接受参数sname，返回该speaker所有statement
     sname = request.args.get('sname')
@@ -108,6 +146,7 @@ def speaker_statement():
 
 
 @app.route('/speaker/info')
+@auth.login_required
 def speaker_info():
     s_name = request.args.get('sname')
     d = []
@@ -127,6 +166,7 @@ def speaker_info():
 
 
 @app.route('/wordcnt/speaker')
+@auth.login_required
 def word_cnt_by_speaker():
     # 接受参数sname,year
     # 若year为空，返回speaker的所有statements中词的统计
@@ -159,6 +199,7 @@ def word_cnt_by_speaker():
 
 
 @app.route('/wordcnt/time')
+@auth.login_required
 def word_cnt_by_year():
     # 接受参数year,month
     # 若month为空，返回年份year所有statements中词的统计
@@ -195,6 +236,7 @@ def word_cnt_by_year():
 
 
 @app.route('/wordcnt/party')
+@auth.login_required
 def word_cnt_by_party():
     party = request.args.get('party')
     year = request.args.get('year')
@@ -245,11 +287,11 @@ def credit_history_by_year():
         status = 2
     else:
         status = 0
-        for year in range(int(year1), int(year2)+1):
+        for year in range(int(year1), int(year2) + 1):
             fd = data[data['year'] == year]
             if fd.shape[0] != 0:
                 ch = fd['label'].values.tolist()
-                c = {year:count_ch(ch)}
+                c = {year: count_ch(ch)}
                 d.append(c)
         if len(d) == 0:
             status = 1
@@ -258,6 +300,7 @@ def credit_history_by_year():
 
 
 @app.route('/ch/speaker')
+@auth.login_required
 def credit_history_by_speaker():
     sname = request.args.get('sname')
     year1 = request.args.get('year1')
@@ -297,6 +340,7 @@ def credit_history_by_speaker():
 
 
 @app.route('/ch/party')
+@auth.login_required
 def credit_history_by_party():
     party = request.args.get('party')
     year1 = request.args.get('year1')
@@ -344,6 +388,7 @@ def credit_history_by_party():
 
 
 @app.route('/ch/time')
+@auth.login_required
 def credit_history_by_time():
     from collections import defaultdict
     binary = request.args.get('binary')
@@ -374,6 +419,7 @@ def credit_history_by_time():
 
 
 @app.route('/speakers')
+@auth.login_required
 def speakers():
     from collections import defaultdict
     names = data_s.iloc[:, 0].values.tolist()
@@ -385,6 +431,7 @@ def speakers():
 
 
 @app.route('/party')
+@auth.login_required
 def party():
     from collections import defaultdict
     parties = data_s.iloc[:, 1].values.tolist()
@@ -398,5 +445,4 @@ def party():
 
 if __name__ == '__main__':
     # 以后启动在 terminal里 python app.py
-    CORS(app, supports_credentials=True)
     app.run(host='0.0.0.0', port=5000, debug=True)
