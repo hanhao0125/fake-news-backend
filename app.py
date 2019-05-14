@@ -6,14 +6,14 @@ from flask_cors import CORS
 
 def read_statement():
     # 读取新闻的数据
-    csv = pd.read_csv('liar_dataset/liar_dataset/statement.csv', sep=',', header=None, index_col=False,
+    csv = pd.read_csv(f'liar_dataset/liar_dataset/statement.csv', sep=',', header=None, index_col=False,
                       names=['label', 'statement', 'speaker', 'year', 'month', 'url'])
     return csv
 
 
 def read_speakerinfo():
     # 读取人物的数据
-    csv = pd.read_csv('liar_dataset/liar_dataset/speaker.csv', sep=',', header=None, index_col=False,
+    csv = pd.read_csv(f'liar_dataset/liar_dataset/speaker.csv', sep=',', header=None, index_col=False,
                       names=['speaker', 'party', 'stateInfo'])
     return csv
 
@@ -45,6 +45,7 @@ def count_ch(fd):
           "mostlyFalseCounts": credit[3], "FalseCounts": credit[4], "onFireCounts": credit[5]}
     return ch
 
+
 def count_ch_binary(fd):
     items = ['True', 'Mostly True', 'Half-True', 'Mostly False', 'False', 'Pants on Fire!']
     credit = []
@@ -56,7 +57,6 @@ def count_ch_binary(fd):
 
 # 程序开始时，读取数据
 app = Flask(__name__)
-CORS(app, supports_credentials=True)
 data = read_statement()
 data_s = read_speakerinfo()
 
@@ -76,13 +76,16 @@ def hello_world():
     return 'Hello World!'
 
 
-@app.route('/speaker/states')
+@app.route('/speaker/statements')
 def speaker_statement():
     # 接受参数sname，返回该speaker所有statement
     sname = request.args.get('sname')
+    cnt = request.args.get('cnt')
     d = []
     if sname is None:
         # 没有传入sname,返回状态值2
+        status = 2
+    elif cnt is not None and not cnt.isdigit():
         status = 2
     else:
         s = data[data['speaker'] == sname]
@@ -90,9 +93,16 @@ def speaker_statement():
             # 没有speaker的数据，返回状态值1
             status = 1
         else:
-            # 正常，返回状态值0
-            d = s['statement'].values.tolist()
             status = 0
+            if cnt is None:
+                fd = s['statement'].values.tolist()[0:5]
+            else:
+                fd = s['statement'].values.tolist()[0:int(cnt)]
+            for statement in fd:
+                year = data[data['statement'] == statement]['year'].values.tolist().pop()
+                month = data[data['statement'] == statement]['month'].values.tolist().pop()
+                st = {'statement': statement, "time": month + ' ' + str(year)}
+                d.append(st)
     r = {'code': status, 'data': d}
     return jsonify(r)
 
@@ -388,4 +398,5 @@ def party():
 
 if __name__ == '__main__':
     # 以后启动在 terminal里 python app.py
+    CORS(app, supports_credentials=True)
     app.run(host='0.0.0.0', port=5000, debug=True)
